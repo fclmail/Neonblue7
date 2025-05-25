@@ -1,0 +1,101 @@
+<!DOCTYPE html><html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Polygon Arbitrage Scanner</title>
+  <style>
+    body { background-color: #001f3f; color: white; font-family: Arial, sans-serif; padding: 20px; }
+    button, input, label { margin: 10px 0; display: block; }
+    #log { background: #0b3d91; padding: 10px; height: 200px; overflow-y: auto; font-size: 14px; }
+    input[type="number"] { width: 100px; }
+  </style>
+</head>
+<body>
+  <h1>Polygon Arbitrage Interface</h1>
+  <button id="connectWallet">Connect Wallet</button>
+  <div>
+    <label for="tradeAmount">Trade Amount (USDC):</label>
+    <input type="number" id="tradeAmount" value="1" step="0.01" min="0.001" max="10000" />
+  </div>
+  <div>
+    <label><input type="checkbox" id="onlyProfitToggle" checked /> Trade only when profitable</label>
+  </div>
+  <button id="startScan">Start Scanning</button>
+  <button id="stopScan">Stop Scanning</button>
+  <div id="log"></div>  <script src="https://cdn.jsdelivr.net/npm/ethers@6.6.2/dist/ethers.umd.min.js"></script>  <script>
+    const provider = new ethers.BrowserProvider(window.ethereum);
+    let signer, contract;
+
+    const CONTRACT_ADDRESS = "0x6eEac716eDA14c0Adc5Cfc1947319552D423dad6";
+    const ABI = [
+      {"inputs":[],"name":"scanStep","outputs":[],"stateMutability":"nonpayable","type":"function"},
+      {"inputs":[],"name":"startScanning","outputs":[],"stateMutability":"nonpayable","type":"function"},
+      {"inputs":[],"name":"stopScanning","outputs":[],"stateMutability":"nonpayable","type":"function"},
+      {"inputs":[],"name":"minProfit","outputs":[{"internalType":"uint256","name":"","type":"uint256"}],"stateMutability":"view","type":"function"},
+      {"inputs":[],"name":"USDC","outputs":[{"internalType":"address","name":"","type":"address"}],"stateMutability":"view","type":"function"}
+    ];
+
+    const log = (msg) => {
+      const logEl = document.getElementById("log");
+      const timestamp = new Date().toLocaleTimeString();
+      logEl.innerHTML += `[${timestamp}] ${msg}<br>`;
+      logEl.scrollTop = logEl.scrollHeight;
+    };
+
+    async function connectWallet() {
+      try {
+        await window.ethereum.request({ method: "eth_requestAccounts" });
+        const network = await provider.getNetwork();
+        if (network.chainId !== 137n) {
+          await window.ethereum.request({
+            method: "wallet_switchEthereumChain",
+            params: [{ chainId: "0x89" }],
+          });
+        }
+        signer = await provider.getSigner();
+        contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
+        log("Wallet connected.");
+      } catch (err) {
+        log("Wallet connection failed: " + err.message);
+      }
+    }
+
+    async function startScanning() {
+      if (!contract) return log("Connect wallet first.");
+      try {
+        const onlyWhenProfitable = document.getElementById("onlyProfitToggle").checked;
+        const tradeAmount = document.getElementById("tradeAmount").value;
+        if (!tradeAmount || Number(tradeAmount) <= 0) return log("Invalid trade amount");
+
+        const minProfit = await contract.minProfit();
+        log("Min profit threshold: " + ethers.formatUnits(minProfit, 6) + " USDC");
+
+        if (onlyWhenProfitable && minProfit <= 0) {
+          log("Skipping scan because profit < minProfit.");
+          return;
+        }
+
+        const tx = await contract.startScanning();
+        await tx.wait();
+        log("Scan started. TX: " + tx.hash);
+      } catch (err) {
+        log("Start scan failed: " + err.message);
+      }
+    }
+
+    async function stopScanning() {
+      if (!contract) return log("Connect wallet first.");
+      try {
+        const tx = await contract.stopScanning();
+        await tx.wait();
+        log("Scan stopped. TX: " + tx.hash);
+      } catch (err) {
+        log("Stop scan failed: " + err.message);
+      }
+    }
+
+    document.getElementById("connectWallet").onclick = connectWallet;
+    document.getElementById("startScan").onclick = startScanning;
+    document.getElementById("stopScan").onclick = stopScanning;
+  </script></body>
+</html>
